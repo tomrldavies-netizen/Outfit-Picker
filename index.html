@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#F6F3EE">
+  <title>Outfit Picker</title>
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" href="icons/icon-192.png">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <link rel="stylesheet" href="styles.css">
+  <script type="module" src="app.js"></script>
+</head>
+<body>
+  <main>
+    <!-- ============ TODAY ============ -->
+    <section id="screen-today" class="screen">
+      <header class="screen-head">
+        <h1>Today</h1>
+        <p id="todayDate" class="muted"></p>
+      </header>
+
+      <div id="weather" class="weather"></div>
+
+      <div class="panel controls">
+        <label for="formality" class="slider-label">
+          <span>Casual</span><strong id="formalityValue"></strong><span>Smart</span>
+        </label>
+        <input type="range" id="formality" min="1" max="5" step="1">
+        <label class="switch-row">
+          <span>Try something new</span>
+          <input type="checkbox" id="tryNew" class="switch">
+        </label>
+      </div>
+
+      <div id="outfitCard" class="flatlay"></div>
+      <ul id="outfitNames" class="outfit-names"></ul>
+      <div id="outfitNotes" class="notes"></div>
+
+      <div class="actions">
+        <button id="reshuffleBtn" class="btn">↻ Reshuffle</button>
+        <button id="wearBtn" class="btn btn-primary">I'm wearing this</button>
+      </div>
+
+      <div id="debug" class="debug" hidden></div>
+    </section>
+
+    <!-- ============ WARDROBE ============ -->
+    <section id="screen-wardrobe" class="screen" hidden>
+      <header class="screen-head row">
+        <h1>Wardrobe</h1>
+        <button id="addItemBtn" class="btn btn-primary btn-small">+ Add item</button>
+      </header>
+      <div id="wardrobeFilters" class="chips scroll-x"></div>
+      <button id="laundryBtn" class="btn btn-ghost full" hidden>🧺 Laundry done: mark all clean</button>
+      <div id="wardrobeGrid" class="grid"></div>
+    </section>
+
+    <!-- ============ SETTINGS ============ -->
+    <section id="screen-settings" class="screen" hidden>
+      <header class="screen-head"><h1>Settings</h1></header>
+
+      <div class="panel">
+        <h2>Location</h2>
+        <label class="switch-row">
+          <span>Use my phone's location (GPS)</span>
+          <input type="checkbox" id="useGps" class="switch">
+        </label>
+        <p class="muted small">Your saved town is used when GPS is off or unavailable.</p>
+        <p>Saved town: <strong id="savedTown">none</strong></p>
+        <form id="townForm" class="row">
+          <input id="townInput" type="search" placeholder="Search for your town" autocomplete="off">
+          <button class="btn btn-small">Search</button>
+        </form>
+        <ul id="townResults" class="list"></ul>
+      </div>
+
+      <div class="panel">
+        <h2>Backup</h2>
+        <p class="muted small">Your wardrobe lives only on this phone. Export a backup now and then, and keep the file somewhere safe (e.g. Google Drive).</p>
+        <div class="row">
+          <button id="exportBtn" class="btn">Export backup</button>
+          <label class="btn">Import backup<input id="importInput" type="file" accept="application/json,.json" hidden></label>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h2>Wear history</h2>
+        <ul id="historyList" class="list"></ul>
+        <button id="clearHistoryBtn" class="btn btn-ghost btn-small">Clear all history</button>
+      </div>
+
+      <div class="panel">
+        <h2>Rules</h2>
+        <label class="switch-row">
+          <span>Debug view (show score breakdowns)</span>
+          <input type="checkbox" id="debugToggle" class="switch">
+        </label>
+        <p class="muted small">All rule weights are in <code>settings.js</code>. Edit the numbers there to change how outfits are picked.</p>
+        <p id="storageInfo" class="muted small"></p>
+      </div>
+    </section>
+  </main>
+
+  <nav class="tabbar">
+    <button data-screen="today" class="active"><span>👕</span>Today</button>
+    <button data-screen="wardrobe"><span>🗂️</span>Wardrobe</button>
+    <button data-screen="settings"><span>⚙️</span>Settings</button>
+  </nav>
+
+  <!-- ============ ADD / EDIT ITEM ============ -->
+  <dialog id="editor">
+    <form id="editorForm" method="dialog">
+      <header class="sheet-head">
+        <button type="button" id="editorCancel" class="btn btn-ghost btn-small">Cancel</button>
+        <h2 id="editorTitle">Add item</h2>
+        <button type="submit" class="btn btn-primary btn-small">Save</button>
+      </header>
+
+      <div class="photo-box">
+        <div id="photoPreview" class="photo-preview"><span class="muted">No photo yet</span></div>
+        <p id="photoStatus" class="muted small center"></p>
+        <div class="row center">
+          <label class="btn btn-small"><span id="cameraLabel">📷 Take photo</span><input id="cameraInput" type="file" accept="image/*" capture="environment" hidden></label>
+          <label class="btn btn-small">🖼️ Gallery<input id="galleryInput" type="file" accept="image/*" hidden></label>
+        </div>
+        <label id="keepOriginalRow" class="switch-row" hidden>
+          <span>Keep original background</span>
+          <input type="checkbox" id="keepOriginal" class="switch">
+        </label>
+      </div>
+
+      <label class="field">Name (optional)
+        <input id="itemName" type="text" placeholder="e.g. Navy oxford shirt" maxlength="60">
+      </label>
+
+      <fieldset class="field"><legend>Category</legend><div class="seg" data-seg="category"></div></fieldset>
+      <label id="beltRow" class="switch-row" hidden>
+        <span>It's a belt (match it to shoes)</span>
+        <input type="checkbox" id="isBelt" class="switch" checked>
+      </label>
+
+      <fieldset class="field">
+        <legend>Colour</legend>
+        <div class="colour-row">
+          <input type="color" id="colourPicker" value="#808080" aria-label="Main colour">
+          <select id="colourFamily" aria-label="Colour family"></select>
+        </div>
+        <p id="colourHint" class="muted small"></p>
+      </fieldset>
+
+      <fieldset class="field"><legend>Warmth <span class="muted small">(1 light – 5 very warm)</span></legend><div class="seg" data-seg="warmth"></div></fieldset>
+      <fieldset class="field"><legend>Formality <span class="muted small">(1 casual – 5 smart)</span></legend><div class="seg" data-seg="formality"></div></fieldset>
+      <fieldset class="field"><legend>Pattern</legend><div class="seg" data-seg="pattern"></div></fieldset>
+
+      <label class="switch-row field">
+        <span>Waterproof</span>
+        <input type="checkbox" id="waterproof" class="switch">
+      </label>
+
+      <fieldset class="field"><legend>Style tags</legend><div id="styleChips" class="chips wrap"></div></fieldset>
+
+      <div class="row editor-foot">
+        <label class="switch-row grow">
+          <span>Dirty (skip until cleared)</span>
+          <input type="checkbox" id="isDirty" class="switch">
+        </label>
+      </div>
+      <button type="button" id="deleteItemBtn" class="btn btn-danger full" hidden>Delete item</button>
+    </form>
+  </dialog>
+
+  <div id="toast" class="toast" role="status" hidden></div>
+</body>
+</html>
