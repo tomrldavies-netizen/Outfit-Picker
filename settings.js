@@ -71,6 +71,27 @@ export const RULES = {
   // ---------- Pattern rules ----------
   pattern: {
     maxBold: 1,               // most bold-pattern pieces allowed in one outfit (hard rule)
+    maxStatementPieces: 1,    // most "statement" pieces (bold prints + graphic prints together) per outfit (hard rule)
+  },
+
+  // ---------- Reading photos (colour + pattern detection) ----------
+  // Accent colours count as full colours in outfit matching, just like main colours.
+  photo: {
+    maxAccentColours: 2,      // up to this many "other colours" per item
+    accentMinShare: 8,        // a colour must cover at least this % of the item to count as an accent
+
+    // Shades of the same colour (shadows, creases) are merged into one colour when
+    // they're closer than both of these (Lab units: lightness 0-100, tint ~0-130).
+    shadeLightnessGap: 35,
+    shadeTintGap: 15,
+    blendDistance: 12,        // colours that are just the blurred edge between two others are ignored
+
+    // Pattern detection
+    plainMaxOtherShare: 6,    // under this % of other colours = plain
+    statementMinShare: 20,    // other colours spread over at least this % = bold print
+    graphicMaxArea: 35,       // other colours packed into under this % of the item's area = graphic print
+    minRepeats: 3,            // stripes/checks must repeat at least this many times
+    minStripeStrength: 0.15,  // how strongly the stripes must stand out (0-0.5)
   },
 
   // Style tags you can pick from when adding an item. Add or rename freely.

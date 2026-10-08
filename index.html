@@ -134,24 +134,30 @@
         <input id="itemName" type="text" placeholder="e.g. Navy oxford shirt" maxlength="60">
       </label>
 
-      <fieldset class="field"><legend>Category</legend><div class="seg" data-seg="category"></div></fieldset>
+      <fieldset class="field"><legend>Category</legend><div class="seg" data-seg="category"></div>
+        <p id="categoryHint" class="muted small hint"></p></fieldset>
       <label id="beltRow" class="switch-row" hidden>
         <span>It's a belt (match it to shoes)</span>
         <input type="checkbox" id="isBelt" class="switch" checked>
       </label>
 
       <fieldset class="field">
-        <legend>Colour</legend>
+        <legend>Main colour</legend>
         <div class="colour-row">
           <input type="color" id="colourPicker" value="#808080" aria-label="Main colour">
           <select id="colourFamily" aria-label="Colour family"></select>
+          <span id="mainShare" class="muted small"></span>
         </div>
         <p id="colourHint" class="muted small"></p>
+        <p class="sub-label">Other colours <span class="muted small">(prints, stripes, logos — they count in matching)</span></p>
+        <div id="accentList"></div>
+        <button type="button" id="addAccentBtn" class="btn btn-ghost btn-small">+ Add another colour</button>
       </fieldset>
 
       <fieldset class="field"><legend>Warmth <span class="muted small">(1 light – 5 very warm)</span></legend><div class="seg" data-seg="warmth"></div></fieldset>
       <fieldset class="field"><legend>Formality <span class="muted small">(1 casual – 5 smart)</span></legend><div class="seg" data-seg="formality"></div></fieldset>
-      <fieldset class="field"><legend>Pattern</legend><div class="seg" data-seg="pattern"></div></fieldset>
+      <fieldset class="field"><legend>Pattern</legend><div class="seg" data-seg="pattern"></div>
+        <p id="patternHint" class="muted small hint"></p></fieldset>
 
       <label class="switch-row field">
         <span>Waterproof</span>

@@ -12,6 +12,7 @@ wardrobe and today's weather. Everything is stored on your phone.
 | `colour.js` | Colour maths: neutral vs coloured, colour wheel, colour detection from photos |
 | `weather.js` | Open-Meteo weather and "do I need a layer or coat?" |
 | `photo.js` | Background removal and photo tidying |
+| `analyse.js` | Reads a photo: main + accent colours, pattern, and a category guess for easy shapes |
 | `storage.js` | Saving on the phone, plus backup export/import |
 | `app.js` | The screens and buttons |
 | `index.html`, `styles.css` | Page layout and look |

@@ -69,53 +69,14 @@ export function describeColour(colour) {
   return fam === 'coloured' ? hueName(colour) : fam;
 }
 
-// Find the main colour of an image (ideally a cut-out with a transparent
-// background). Uses a small "k-means" clustering: group similar pixels
-// together and return the biggest group's average colour.
-export async function dominantColour(blob) {
-  const bmp = await createImageBitmap(blob);
-  const size = 80;
-  const scale = Math.min(1, size / Math.max(bmp.width, bmp.height));
-  const w = Math.max(1, Math.round(bmp.width * scale)), hgt = Math.max(1, Math.round(bmp.height * scale));
-  const canvas = new OffscreenCanvas(w, hgt);
-  const ctx = canvas.getContext('2d');
-  ctx.drawImage(bmp, 0, 0, w, hgt);
-  bmp.close?.();
-  const data = ctx.getImageData(0, 0, w, hgt).data;
-
-  let pixels = [];
-  for (let i = 0; i < data.length; i += 4) {
-    if (data[i + 3] > 200) pixels.push([data[i], data[i + 1], data[i + 2]]);
-  }
-  // No transparency (background not removed)? Use the middle of the photo.
-  if (pixels.length > w * hgt * 0.95 || pixels.length < 20) {
-    pixels = [];
-    for (let y = Math.floor(hgt * 0.25); y < hgt * 0.75; y++) {
-      for (let x = Math.floor(w * 0.25); x < w * 0.75; x++) {
-        const i = (y * w + x) * 4;
-        pixels.push([data[i], data[i + 1], data[i + 2]]);
-      }
-    }
-  }
-
-  const k = 3;
-  let centres = [0, 0.5, 0.99].map(f => pixels[Math.floor(f * (pixels.length - 1))].slice());
-  let groups = [];
-  for (let iter = 0; iter < 10; iter++) {
-    groups = centres.map(() => []);
-    for (const p of pixels) {
-      let best = 0, bestD = Infinity;
-      centres.forEach((c, j) => {
-        const d = (p[0] - c[0]) ** 2 + (p[1] - c[1]) ** 2 + (p[2] - c[2]) ** 2;
-        if (d < bestD) { bestD = d; best = j; }
-      });
-      groups[best].push(p);
-    }
-    centres = groups.map((g, j) => g.length
-      ? [0, 1, 2].map(ch => g.reduce((sum, p) => sum + p[ch], 0) / g.length)
-      : centres[j]);
-  }
-  const biggest = groups.reduce((bi, g, j) => (g.length > groups[bi].length ? j : bi), 0);
-  const [r, g, b] = centres[biggest];
-  return { ...rgbToHsl(r, g, b), hex: rgbToHex(r, g, b) };
+// Convert to "Lab", a colour space where distances match how different
+// two colours look to people. L = lightness, a = green↔red, b = blue↔yellow.
+export function rgbToLab(r, g, b) {
+  const lin = v => { v /= 255; return v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; };
+  const R = lin(r), G = lin(g), B = lin(b);
+  const f = t => (t > 0.008856 ? Math.cbrt(t) : 7.787 * t + 16 / 116);
+  const fx = f((R * 0.4124 + G * 0.3576 + B * 0.1805) / 0.95047);
+  const fy = f(R * 0.2126 + G * 0.7152 + B * 0.0722);
+  const fz = f((R * 0.0193 + G * 0.1192 + B * 0.9505) / 1.08883);
+  return [116 * fy - 16, 500 * (fx - fy), 200 * (fy - fz)];
 }

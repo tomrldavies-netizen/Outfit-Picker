@@ -2,7 +2,8 @@
 //   scoring.js (picking outfits), colour.js, weather.js, photo.js, storage.js
 import { RULES } from './settings.js';
 import * as db from './storage.js';
-import { FAMILIES, classifyColour, dominantColour, hexToHsl } from './colour.js';
+import { FAMILIES, classifyColour, describeColour, hexToHsl } from './colour.js';
+import { analysePhoto } from './analyse.js';
 import { resolveLocation, fetchForecast, summarise, unknownWeather, searchTown, clearWeatherCache } from './weather.js';
 import { findOutfits, pickOutfit, scoreOutfit, selectionChances, outfitKey, itemLabel, SLOTS, CATEGORY_LABELS } from './scoring.js';
 import { prepare, cutOut, keepOriginal } from './photo.js';
@@ -296,6 +297,7 @@ function renderWardrobe() {
       el('div', { class: 'pic' }, itemPic(item)),
       el('div', { class: 'info' },
         el('strong', {}, itemLabel(item)),
+        el('span', { class: 'dots' }, [item.colour, ...(item.accents || [])].filter(Boolean).map(c => el('i', { style: `background:${c.hex}` }))),
         el('span', { class: 'muted' }, `${CATEGORY_LABELS[item.category]} · warmth ${item.warmth} · formality ${item.formality}`)),
       el('button', {
         class: 'dirty-btn', type: 'button', 'aria-label': item.dirty ? 'Mark clean' : 'Mark dirty',
@@ -323,7 +325,8 @@ async function laundryDone() {
 }
 
 // ---------- Add / edit item ----------
-const ed = { item: null, original: null, cutout: null };
+const ed = { item: null, original: null, cutout: null, accents: [] };
+const PATTERN_LABELS = { plain: 'Plain', stripe: 'Stripe', check: 'Check', graphic: 'Graphic', bold: 'Bold' };
 let photoJob = 0;      // so a slow, cancelled photo doesn't overwrite a newer one
 let previewUrl = null;
 
@@ -349,8 +352,42 @@ function updateColourHint(prefix = '') {
   select.options[0].textContent = `Auto: ${auto}`;
   const fam = select.value === 'auto' ? auto : select.value;
   $('#colourHint').textContent = prefix + (fam === 'coloured'
-    ? 'Coloured: matched using the colour wheel (max 2 colours per outfit).'
-    : 'Neutral: goes with anything.') + ' Tap the swatch or menu to correct it.';
+    ? 'Main colour is matched using the colour wheel.'
+    : 'Main colour is neutral.') + ' Tap the swatch or menu to correct it.';
+}
+
+// A colour-family menu: "Auto: navy", or a family you pick by hand.
+function familySelect(colour, onChange) {
+  const select = el('select', { 'aria-label': 'Colour family', onchange: e => onChange(e.target.value) },
+    el('option', { value: 'auto' }, `Auto: ${classifyColour(colour)}`),
+    FAMILIES.map(f => el('option', { value: f }, f === 'coloured' ? 'Coloured (not neutral)' : `Neutral: ${f}`)));
+  select.value = colour.override || 'auto';
+  return select;
+}
+
+// The "Other colours" rows: accent colours like a logo, print or stripe.
+function renderAccents() {
+  $('#accentList').replaceChildren(...ed.accents.map((accent, i) => {
+    const select = familySelect(accent, v => { accent.override = v === 'auto' ? null : v; });
+    return el('div', { class: 'colour-row accent-row' },
+      el('input', {
+        type: 'color', value: accent.hex, 'aria-label': `Other colour ${i + 1}`,
+        oninput: e => {
+          Object.assign(accent, hexToHsl(e.target.value), { hex: e.target.value, share: null });
+          select.options[0].textContent = `Auto: ${classifyColour(accent)}`;
+        },
+      }),
+      select,
+      accent.share ? el('span', { class: 'muted small' }, `${accent.share}%`) : null,
+      el('button', { type: 'button', class: 'x', 'aria-label': 'Remove this colour', onclick: () => { ed.accents.splice(i, 1); renderAccents(); } }, '×'));
+  }));
+  $('#addAccentBtn').hidden = ed.accents.length >= RULES.photo.maxAccentColours;
+}
+
+function setHint(id, text, auto = false) {
+  const hint = $(id);
+  hint.textContent = text;
+  hint.classList.toggle('auto', auto);
 }
 
 function updateBeltRow() {
@@ -361,7 +398,11 @@ function setupEditor() {
   fillSeg('category', Object.entries(CATEGORY_LABELS));
   fillSeg('warmth', [1, 2, 3, 4, 5].map(n => [n, n]));
   fillSeg('formality', [1, 2, 3, 4, 5].map(n => [n, n]));
-  fillSeg('pattern', [['plain', 'Plain'], ['stripe', 'Stripe'], ['check', 'Check'], ['bold', 'Bold']]);
+  fillSeg('pattern', Object.entries(PATTERN_LABELS));
+  $('#addAccentBtn').addEventListener('click', () => {
+    ed.accents.push({ ...hexToHsl('#2E7D4F'), hex: '#2E7D4F', share: null, override: null });
+    renderAccents();
+  });
   $('#colourFamily').replaceChildren(
     el('option', { value: 'auto' }, 'Auto'),
     FAMILIES.map(f => el('option', { value: f }, f === 'coloured' ? 'Coloured (not neutral)' : `Neutral: ${f}`)),
@@ -373,8 +414,11 @@ function setupEditor() {
     input.addEventListener('change', () => { handlePhoto(input.files[0]); input.value = ''; });
   }
   $('#keepOriginal').addEventListener('change', () => showPreview($('#keepOriginal').checked ? ed.original : ed.cutout));
-  $('#editorForm').addEventListener('change', e => { if (e.target.name === 'category') updateBeltRow(); });
-  $('#colourPicker').addEventListener('input', () => updateColourHint());
+  $('#editorForm').addEventListener('change', e => {
+    if (e.target.name === 'category') { updateBeltRow(); setHint('#categoryHint', ''); }
+    if (e.target.name === 'pattern') setHint('#patternHint', '');
+  });
+  $('#colourPicker').addEventListener('input', () => { $('#mainShare').textContent = ''; updateColourHint(); });
   $('#colourFamily').addEventListener('change', () => updateColourHint());
   $('#editorForm').addEventListener('submit', saveEditor);
   $('#editorCancel').addEventListener('click', () => { photoJob++; $('#editor').close(); });
@@ -396,6 +440,11 @@ function openEditor(item = null) {
   document.querySelectorAll('#styleChips .chip').forEach(c => c.classList.toggle('on', !!item?.styles?.includes(c.dataset.tag)));
   $('#colourPicker').value = item?.colour?.hex || '#808080';
   $('#colourFamily').value = item?.colour?.override || 'auto';
+  $('#mainShare').textContent = '';
+  ed.accents = (item?.accents || []).map(a => ({ ...a }));
+  renderAccents();
+  setHint('#patternHint', '');
+  setHint('#categoryHint', '');
   $('#keepOriginalRow').hidden = true;
   $('#keepOriginal').checked = false;
   $('#cameraLabel').textContent = item?.photo ? '📷 Retake' : '📷 Take photo';
@@ -439,13 +488,27 @@ async function handlePhoto(file) {
   $('#photoPreview').classList.remove('busy');
   $('#keepOriginalRow').hidden = !ed.cutout;
 
+  // Read the photo: colours, pattern and (for easy shapes) category.
   try {
-    const colour = await dominantColour(ed.cutout || ed.original);
+    const found = await analysePhoto(ed.cutout || ed.original);
     if (job !== photoJob) return;
-    $('#colourPicker').value = colour.hex;
+    $('#colourPicker').value = found.main.hex;
     $('#colourFamily').value = 'auto';
-    updateColourHint('Detected from photo. ');
-  } catch { /* keep whatever colour was there */ }
+    $('#mainShare').textContent = `${found.main.share}%`;
+    ed.accents = found.accents.map(a => ({ ...a, override: null }));
+    renderAccents();
+    const others = found.accents.length ? ` with ${found.accents.map(describeColour).join(' & ')}` : '';
+    updateColourHint(`Found ${describeColour(found.main)}${others}. `);
+
+    setSeg('pattern', found.pattern);
+    setHint('#patternHint', `Looks ${PATTERN_LABELS[found.pattern].toLowerCase()} (${found.patternReason}). Tap to change.`, true);
+
+    if (found.guess && !segValue('category')) {
+      setSeg('category', found.guess.category);
+      updateBeltRow();
+      setHint('#categoryHint', `Guessed ${CATEGORY_LABELS[found.guess.category].toLowerCase()} (${found.guess.reason}). Tap to change.`, true);
+    }
+  } catch { /* keep whatever was filled in */ }
 }
 
 async function saveEditor(e) {
@@ -467,6 +530,7 @@ async function saveEditor(e) {
     pattern: segValue('pattern'),
     waterproof: $('#waterproof').checked,
     colour: { ...hexToHsl(hex), hex, override: family === 'auto' ? null : family },
+    accents: ed.accents.map(a => ({ h: a.h, s: a.s, l: a.l, hex: a.hex, share: a.share ?? null, override: a.override ?? null })),
     styles: [...document.querySelectorAll('#styleChips .chip.on')].map(c => c.dataset.tag),
     dirty: $('#isDirty').checked,
     photo,

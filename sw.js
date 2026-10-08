@@ -1,10 +1,10 @@
 // Service worker: lets the app open offline and keeps the big
 // background-removal download so it only happens once.
-const APP_CACHE = 'outfit-app-v1';
+const APP_CACHE = 'outfit-app-v2';
 const LIB_CACHE = 'outfit-libs-v1';
 const APP_FILES = [
   './', 'index.html', 'styles.css', 'app.js', 'settings.js', 'scoring.js', 'colour.js',
-  'weather.js', 'storage.js', 'photo.js', 'manifest.json',
+  'weather.js', 'storage.js', 'photo.js', 'analyse.js', 'manifest.json',
   'icons/icon-192.png', 'icons/icon-512.png',
 ];
 const LIB_HOSTS = ['cdn.jsdelivr.net', 'staticimgly.com'];

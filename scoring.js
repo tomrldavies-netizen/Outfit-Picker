@@ -6,14 +6,21 @@
 //  4. Pick one at random from the best few, weighted toward higher scores.
 // All the numbers come from settings.js.
 import { RULES } from './settings.js';
-import { colourFamily, describeColour, hueDistance } from './colour.js';
+import { colourFamily, describeColour, hueDistance, hueName } from './colour.js';
 
 export const SLOTS = ['top', 'bottom', 'shoes', 'layer', 'coat', 'accessory'];
 export const CATEGORY_LABELS = {
   top: 'Top', bottom: 'Bottom', shoes: 'Shoes', layer: 'Layer', coat: 'Coat', accessory: 'Belt/accessory',
 };
 
-export const itemLabel = item => item.name || `${describeColour(item.colour)} ${CATEGORY_LABELS[item.category].toLowerCase()}`;
+export function itemLabel(item) {
+  if (item.name) return item.name;
+  const colours = [item.colour, ...(item.accents || [])].map(describeColour);
+  const unique = [...new Set(colours)].slice(0, 2).join(' & ');
+  return `${unique} ${CATEGORY_LABELS[item.category].toLowerCase()}`;
+}
+
+const isStatement = item => item.pattern === 'bold' || item.pattern === 'graphic';
 
 export const outfitKey = outfit => SLOTS.map(s => outfit.pieces[s]?.id || '-').join('|');
 
@@ -57,17 +64,23 @@ function topBottomProblem(top, bottom) {
   if (top.pattern === 'bold' && bottom.pattern === 'bold' && RULES.pattern.maxBold < 2) {
     return `More than ${RULES.pattern.maxBold} bold pattern`;
   }
+  if (isStatement(top) && isStatement(bottom) && RULES.pattern.maxStatementPieces < 2) {
+    return `More than ${RULES.pattern.maxStatementPieces} bold/graphic print`;
+  }
   return null;
 }
 
-// Group the non-neutral pieces by colour (hues close together count as one colour).
+// Group every non-neutral colour in the outfit (main colours AND accent
+// colours like a green logo) by hue. Hues close together count as one colour.
 function colourGroups(list) {
   const groups = [];
   for (const it of list) {
-    if (it.family !== 'coloured') continue;
-    const g = groups.find(gr => hueDistance(gr.hue, it.colour.h) <= RULES.colour.sameColourWithinDegrees);
-    if (g) g.items.push(it);
-    else groups.push({ hue: it.colour.h, items: [it] });
+    for (const c of it.palette) {
+      if (c.family !== 'coloured') continue;
+      const g = groups.find(gr => hueDistance(gr.hue, c.h) <= RULES.colour.sameColourWithinDegrees);
+      if (!g) groups.push({ hue: c.h, items: [it] });
+      else if (!g.items.includes(it)) g.items.push(it);
+    }
   }
   return groups;
 }
@@ -87,9 +100,14 @@ export function scoreOutfit(pieces, ctx, explain = false) {
   const tb = topBottomProblem(pieces.top, pieces.bottom);
   if (tb) return { valid: false, reason: tb };
   const groups = colourGroups(list);
-  if (groups.length > RULES.colour.maxColours) return { valid: false, reason: `More than ${RULES.colour.maxColours} colours` };
+  // A multi-colour print may bring more colours by itself; then nothing else may add new ones.
+  const colourLimit = Math.max(RULES.colour.maxColours, ...list.map(i => i.ownColours));
+  if (groups.length > colourLimit) return { valid: false, reason: `More than ${RULES.colour.maxColours} colours` };
   if (list.filter(i => i.pattern === 'bold').length > RULES.pattern.maxBold) {
     return { valid: false, reason: `More than ${RULES.pattern.maxBold} bold pattern` };
+  }
+  if (list.filter(isStatement).length > RULES.pattern.maxStatementPieces) {
+    return { valid: false, reason: `More than ${RULES.pattern.maxStatementPieces} bold/graphic print` };
   }
 
   let total = 0;
@@ -102,15 +120,19 @@ export function scoreOutfit(pieces, ctx, explain = false) {
 
   // ----- Colour -----
   const C = S.colour;
+  const nameOf = g => hueName({ h: g.hue, s: 50, l: 50 });
+  const onePiece = groups.length > 1 && groups.every(g => g.items.length === 1 && g.items[0] === groups[0].items[0]);
   if (!groups.length) add('All neutrals', C.allNeutral);
+  else if (onePiece || groups.length > 2) add(`Colours come from one patterned piece (${groups.map(nameOf).join(', ')})`, C.singleAccent);
   else if (groups.length === 1) {
-    if (groups[0].items.length > 1) add('Monochrome: one colour across pieces', C.monochrome);
-    else add('One colour with neutrals', C.singleAccent);
+    if (groups[0].items.length > 1) add(`Monochrome: ${nameOf(groups[0])} across pieces`, C.monochrome);
+    else add(`One colour (${nameOf(groups[0])}) with neutrals`, C.singleAccent);
   } else {
     const d = Math.round(hueDistance(groups[0].hue, groups[1].hue));
-    if (d <= RULES.colour.analogousMaxDegrees) add(`Analogous colours (${d}° apart)`, C.analogous);
-    else if (d >= RULES.colour.complementaryMinDegrees) add(`Complementary colours (${d}° apart)`, C.complementary);
-    else add(`Colours clash on the wheel (${d}° apart)`, C.clash);
+    const pair = `${nameOf(groups[0])} + ${nameOf(groups[1])}, ${d}° apart`;
+    if (d <= RULES.colour.analogousMaxDegrees) add(`Analogous colours (${pair})`, C.analogous);
+    else if (d >= RULES.colour.complementaryMinDegrees) add(`Complementary colours (${pair})`, C.complementary);
+    else add(`Colours clash on the wheel (${pair})`, C.clash);
   }
   const contrast = Math.abs(pieces.top.colour.l - pieces.bottom.colour.l);
   add(`Top/bottom lightness contrast (${contrast})`, C.contrastMax * Math.min(contrast, 50) / 50);
@@ -239,7 +261,13 @@ function enumerate(clean, ctx, tolerance) {
 
 export function findOutfits({ items, wears, weather, formality, tryNew, today }) {
   // Work on copies with the colour family worked out once per item.
-  const clean = items.filter(i => !i.dirty).map(i => ({ ...i, family: colourFamily(i.colour) }));
+  // palette = main colour + accent colours, each sorted into a family.
+  const clean = items.filter(i => !i.dirty).map(i => ({
+    ...i,
+    family: colourFamily(i.colour),
+    palette: [i.colour, ...(i.accents || [])].map(c => ({ ...c, family: colourFamily(c) })),
+  }));
+  for (const it of clean) it.ownColours = colourGroups([it]).length;
   const ctx = { weather, formality, tryNew, history: readHistory(wears, today) };
   let result = enumerate(clean, ctx, RULES.formality.tolerance);
   if (!result.outfits.length && RULES.formality.fallbackTolerance > RULES.formality.tolerance) {
